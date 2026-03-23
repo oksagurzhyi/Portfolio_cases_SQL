@@ -1,0 +1,87 @@
+Кейс: Конверсія виросла, грошей немає
+
+Легенда: Ви - аналітик в e-commerce. Запустили АВ-тест нового оформлення кошика.
+За тиждень:
+CR (purchase/session) зріс 2.0 до 2.3%
+Середній чек знизився з 50 до 44
+Дохід на сесію майже не змінився
+DAU без змін
+Повернення без змін.
+
+Менеджмент каже: Конверсія зросла - це дуже добре.
+Дані:
+Таблиця ab_sessions:
+session_id
+user_id
+variant (A/B)
+revenue (0 якщо покупки не було).
+
+Порахувати по варіантам:
+сесії
+покупці з доходом більше 0
+CR
+AOV
+RPV (revenue per variant).
+
+Чому конверсія може вирости, а RPV ні? RPV складається з CR та AOV, і якщо конверсія росте, а середній дохід падає, то ефект може бути взаємокомпенсований. У цій ситуації CR краще, але гроші на сесію майже ті ж самі. Виграли частоту покупки, але програли її розмір.
+
+Сегментація на дешевих та дорогих покупців дозволяє перевірити, за рахунок чого зросла конверсія.
+Найчастіше це може бути CR зріс у дешевих поупках, але знизився (не виріс) у дорогих. Або - CR виріс і в дешевих, і в дрогих покупках, тоді зменення AOV может бути за рахунок того, що дорогі стали купувати більш "вузько" - меньше позицій у кошику, меньше додаткових позицій.
+
+Тобто, в даному випадку для бізнеса вирішальна метрика - не конверсія, а середній дохід по варіантам (або прибуток). 
+
+select date_trunc('day', a.session_date::date) as day_start 
+, a.variant 
+, count(distinct a.session_id) as sessions_cnt
+, round(sum(a.revenue::numeric),2) as revenue
+, count(distinct a.user_id) as buyers
+, round(1.0*count(distinct a.user_id) / count(distinct a.session_id),2) as CR
+, round(1.0*sum(a.revenue::numeric) / count(distinct a.user_id),2) as AOV
+,  round(1.0*sum(a.revenue::numeric) / count(distinct a.session_id),2) as revenue_per_variant
+from voda.ab_sessions a
+where a.revenue >0
+group by 1,2
+order by 2,1
+;
+
+--week
+select date_trunc('week', a.session_date::date) as week_start 
+, a.variant 
+, count(distinct a.session_id) as sessions_cnt
+, round(sum(a.revenue::numeric),2) as revenue
+, count(distinct a.user_id) as buyers
+, round(1.0*count(distinct a.user_id) / count(distinct a.session_id),2) as CR
+, round(1.0*sum(a.revenue::numeric) / count(distinct a.user_id),2) as AOV
+,  round(1.0*sum(a.revenue::numeric) / count(distinct a.session_id),2) as revenue_per_variant
+from voda.ab_sessions a
+where a.revenue >0
+group by 1,2
+order by 2,1
+;
+
+
+--checking for low and hith spenders and CR
+with segmenting as (
+select date_trunc('day', a.session_date::date) as day_start 
+, a.variant 
+, count(distinct a.session_id) as sessions_cnt
+, count(distinct a.user_id) as buyers
+, round(sum(a.revenue::numeric),2) as revenue
+, count(distinct case when a.revenue <30 then a.user_id end) as low_spenders_cnt
+, sum(case when a.revenue <30 then a.revenue end) as low_spenders_revenue
+, count(distinct case when a.revenue >=30 then a.user_id end) as high_spenders_cnt
+, sum( case when a.revenue >=30 then a.revenue end) as high_spenders_revenue
+from voda.ab_sessions a
+where a.revenue >0
+group by 1,2
+order by 2,1
+)
+select  day_start 
+, variant
+, round(1.0*low_spenders_cnt / buyers, 2) as CR_low_spenders 
+, round(1.0*high_spenders_cnt / buyers,2) as CR_high_spenders 
+from segmenting 
+;
+
+
+

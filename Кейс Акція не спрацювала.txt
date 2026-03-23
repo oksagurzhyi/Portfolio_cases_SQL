@@ -1,0 +1,90 @@
+Кейс: Акція не спрацювала
+
+Легенда: Ви - аналітик в e-commerce. Маркетинг запустив кампанію Безкоштовна доставка у вихідні.
+Умови:
+акція триває тільки у 3 країнах
+тільки для категорій electronics, home, kids
+тільки для користувачів, які бачили банер у додатку.
+
+Після кампанії маркетинг звітує: Акція не спрацювала, у звіті багато порожніх сегментів. 
+_________________
+Проблема може бути не в ації, а у тому, що звіт побудован не правильно: частина комбінацій "країна х категорія х день" просто відсутні, тому що немає заказів.
+
+Щоб це перевірити, треба побудувати повну матрицю сегментів, для того, щоб побачити нулі. 
+
+Таблиці:
+orders:
+order_date
+order_id
+user_id
+country
+category
+revenue
+
+banner_impression:
+impression_date
+user_id
+country
+
+dims(довідник):
+countries
+categories
+dates
+
+
+1. Будуємо "сітку сегментів" через cross join
+2. Додаємо метрики по заказам і показуємо нулі
+3. Умова - бачили банер
+
+
+
+--join tables to create a basis for developing required metrics 
+with skelet_table as (
+select   d.countries
+,  d1.categories 
+,  d2.dates::date
+from voda.dims d
+cross join voda.dims d1 
+cross join voda.dims d2
+)
+, 
+banner_users as (
+select distinct b.impression_date::date as dt
+, b.user_id
+, b.country
+from voda.banner_impressions b 
+)
+, orders_campaign as (
+select o.order_date::date as dt
+, o.order_id 
+, o.user_id 
+, o.country 
+, o.category 
+, o.revenue
+from voda.orders_c o
+join banner_users b  
+		on o.order_date::date = b.dt
+		and o.user_id = b.user_id 
+		and o.country = b.country
+)
+select t.dates 
+, t.countries
+, t.categories
+, count(distinct c.order_id) as orders_cnt
+, count(distinct c.user_id) as users_cnt
+, round(coalesce(sum(c.revenue::numeric),0),2) as revenue
+from skelet_table t 
+left join orders_campaign c 
+		on t.dates = c.dt 
+		and t.countries = c.country 
+		and t.categories = c.category
+group by 1,2,3
+order by 1
+;
+
+"Порожні сегменти" - це не помилка у звіті і не доказ того, що акція не спрацювала.
+У комбінаціях "країна х категорія х день"  реально отримані нулі для тих, хто бачив банер. 
+А от далі вже треба досліджувати:
+- чи була правильною аудиторія
+- чи була цікавою категорія
+- чи ціна та асортимент були цікавими для покупців.
